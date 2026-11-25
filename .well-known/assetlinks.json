@@ -1,0 +1,8 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "pl.pokolei.app",
+    "sha256_cert_fingerprints": ["2E:C3:BB:D1:B5:B7:56:D7:43:50:8E:1F:D0:1D:88:89:EA:B1:76:2B:B9:68:7F:6A:BC:E3:A6:84:6E:77:D5:21"]
+  }
+}]
