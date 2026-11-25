@@ -901,7 +901,7 @@ const canScan = !!(window.Android && Android.scanList);
 function cleanOcr(text){
   return String(text || "").split(/\r?\n/)
     .map(l => l.replace(/^\s*\d{1,2}\s*[.)]\s+/, "").replace(/^[\s☐□○●▪■◦✓✔×\-–—•*·.)\]]+(?=\S)/, "").replace(/[|_]+/g, " ").trim())
-    .filter(l => /[a-ząćęłńóśźż]{2,}/i.test(l) && !/^lista( zakup\w*)?:?$/i.test(l) && !/^zakupy:?$/i.test(l))
+    .filter(l => /[a-ząćęłńóśźż]{2,}/i.test(l) && !/^lista( zakup[^\s:]*)?:?$/i.test(l) && !/^zakupy:?$/i.test(l))
     .join("\n");
 }
 function openScanSheet(){
