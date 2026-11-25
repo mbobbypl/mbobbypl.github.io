@@ -66,7 +66,10 @@ main{max-width:640px;margin:0 auto;padding:8px 12px calc(160px + env(safe-area-i
 .sign .count{font-family:var(--body);font-size:14px;font-weight:500;color:var(--muted)}
 .aisle.complete .sign{opacity:.55}
 
-.item{display:flex;align-items:center;gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:12px;margin:6px 0;min-height:56px}
+.item{display:flex;align-items:center;gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:12px;margin:6px 0;min-height:56px;position:relative;overflow:hidden;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+/* pasek postępu przytrzymania – po zapełnieniu pozycja znika */
+.item::after{content:"";position:absolute;inset:0;background:rgba(198,40,40,.16);transform:scaleX(0);transform-origin:left;pointer-events:none}
+.item.pressing::after{transform:scaleX(1);transition:transform .43s linear .12s}
 .check{width:56px;align-self:stretch;display:grid;place-items:center;flex:0 0 auto}
 .box{width:26px;height:26px;border-radius:7px;border:2px solid var(--muted);display:grid;place-items:center;transition:background .15s,border-color .15s;color:var(--accent-ink)}
 .item.done .box{background:var(--accent);border-color:var(--accent)}
@@ -168,8 +171,8 @@ main{max-width:640px;margin:0 auto;padding:8px 12px calc(160px + env(safe-area-i
 <div class="addbar">
   <div class="sugg" id="sugg" aria-label="Podpowiedzi"></div>
   <form id="addForm" autocomplete="off">
-    <button type="button" class="cam" id="camBtn" hidden aria-label="Lista ze zdjęcia kartki">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
+    <button type="button" class="cam" id="micBtn" hidden aria-label="Dyktuj listę">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></svg>
     </button>
     <input id="addInput" type="text" enterkeyhint="done" placeholder="np. mleko 2 l, jajka x10, chleb" aria-label="Nowa pozycja">
     <button type="submit">Dodaj</button>
@@ -421,6 +424,32 @@ function applyAccent(){
 
 const CHECK_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
 
+/* ---------- Przytrzymanie pozycji = usunięcie ---------- */
+const LONG_MS = 550;
+function removeItem(it){
+  const idx = state.items.indexOf(it); if (idx < 0) return;
+  state.items.splice(idx, 1);
+  try{ navigator.vibrate && navigator.vibrate(30); }catch(e){}
+  commit();
+  toast(`Usunięto: ${it.name}`, "Cofnij", () => { state.items.splice(Math.min(idx, state.items.length), 0, it); commit(); });
+}
+function withLongPress(it, row){
+  let timer = null, x0 = 0, y0 = 0, fired = false;
+  const cancel = () => { clearTimeout(timer); timer = null; row.classList.remove("pressing"); };
+  row.addEventListener("pointerdown", e => {
+    if (e.button > 0) return;
+    fired = false; x0 = e.clientX; y0 = e.clientY;
+    row.classList.add("pressing");
+    timer = setTimeout(() => { timer = null; fired = true; row.classList.remove("pressing"); removeItem(it); }, LONG_MS);
+  });
+  row.addEventListener("pointermove", e => { if (timer && Math.hypot(e.clientX - x0, e.clientY - y0) > 10) cancel(); });
+  for (const ev of ["pointerup","pointercancel","pointerleave"]) row.addEventListener(ev, cancel);
+  row.addEventListener("contextmenu", e => e.preventDefault());
+  /* kliknięcie, które kończy przytrzymanie, nie może odhaczać ani otwierać edycji */
+  row.addEventListener("click", e => { if (fired){ e.stopPropagation(); e.preventDefault(); fired = false; } }, true);
+  return row;
+}
+
 /* ---------- Render ---------- */
 function render(){
   if (!getChain(state.chain)) state.chain = "lidl";
@@ -446,7 +475,7 @@ function render(){
   if (!total){
     list.append(el("div", {class:"empty"},
       el("h2", {text:"Co kupujemy?"}),
-      el("p", {text:"Wpisz produkty na dole, kilka naraz po przecinku. Ilość dopisz na końcu: „mleko 2 l”, „jajka x10”. Lista sama ułoży się w kolejności alejek."})));
+      el("p", {text:"Wpisz produkty na dole, kilka naraz po przecinku. Ilość dopisz na końcu: „mleko 2 l”, „jajka x10”. Lista sama ułoży się w kolejności alejek. Przytrzymaj pozycję, żeby ją usunąć."})));
     renderSugg();
     return;
   }
@@ -466,12 +495,12 @@ function render(){
     for (const it of items){
       const box = el("span", {class:"box", html:CHECK_SVG});
       const q = fmtQty(it.qty);
-      sec.append(el("div", {class:"item" + (it.done ? " done" : "")},
+      sec.append(withLongPress(it, el("div", {class:"item" + (it.done ? " done" : "")},
         el("button", {class:"check", "aria-label": (it.done ? "Odznacz: " : "Zaznacz: ") + it.name,
           onclick(){ it.done = !it.done; try{ navigator.vibrate && navigator.vibrate(8); }catch(e){} commit(); }}, box),
         el("button", {class:"label", "aria-label": `Edytuj: ${it.name}${q ? ", " + q : ""}`, onclick(){ openItemSheet(it.id); }},
           el("span", {class:"nm", text:it.name}),
-          q ? el("span", {class:"qty", text:q}) : null)));
+          q ? el("span", {class:"qty", text:q}) : null))));
     }
     list.append(sec);
   }
@@ -877,7 +906,8 @@ function openImportSheet(text, title){
       toast(r.dup ? `Dodano ${r.added}, pominięto ${r.dup} (już były na liście)` : `Dodano ${r.added} pozycji`);
     });
     const acts = el("div", {class:"actions"}, addBtn);
-    if (navigator.clipboard && navigator.clipboard.readText){
+    if (title && canDictate) acts.append(el("button", {class:"act", text:"🎤 Dyktuj więcej", onclick(){ startDictation(ta); }}));
+    else if (navigator.clipboard && navigator.clipboard.readText){
       acts.append(el("button", {class:"act", text:"Wklej ze schowka", onclick(){
         navigator.clipboard.readText().then(t => { ta.value = t; update(); }, () => { ta.focus(); toast("Przytrzymaj pole i wybierz „Wklej”"); });
       }}));
@@ -889,38 +919,52 @@ function openImportSheet(text, title){
       }}));
     }
     inner.append(el("h3", {text: title || (text ? "Otrzymana lista" : "Wklej listę")}),
-      el("p", {class:"sub", text: title ? "Sprawdź i popraw odczytany tekst – każda linia to osobny produkt. Produkty, które już są na liście, zostaną pominięte." : "Produkty, które już masz na liście, zostaną pominięte."}),
+      el("p", {class:"sub", text: title ? "Sprawdź i popraw tekst – każda linia to osobny produkt. Między produktami mów „i”, np. „mleko i chleb i dwa kilo ziemniaków”. Produkty, które już są na liście, zostaną pominięte." : "Produkty, które już masz na liście, zostaną pominięte."}),
       ta, info, acts);
     update();
   });
 }
 
-/* ---------- Lista ze zdjęcia kartki (aplikacja na Androida, rozpoznawanie tekstu offline) ---------- */
-const canScan = !!(window.Android && Android.scanList);
-/* Odsiewa śmieci z rozpoznanego tekstu: pojedyncze znaki, same cyfry, nagłówki typu "lista zakupów" */
-function cleanOcr(text){
-  return String(text || "").split(/\r?\n/)
-    .map(l => l.replace(/^\s*\d{1,2}\s*[.)]\s+/, "").replace(/^[\s☐□○●▪■◦✓✔×\-–—•*·.)\]]+(?=\S)/, "").replace(/[|_]+/g, " ").trim())
-    .filter(l => /[a-ząćęłńóśźż]{2,}/i.test(l) && !/^lista( zakup[^\s:]*)?:?$/i.test(l) && !/^zakupy:?$/i.test(l))
-    .join("\n");
+/* ---------- Dyktowanie listy ---------- */
+/* W aplikacji: systemowe rozpoznawanie mowy Androida; w przeglądarce: Web Speech API (jeśli jest) */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const canDictate = !!((window.Android && Android.dictate) || SR);
+const PL = "a-ząćęłńóśźż";
+const SPEECH_NUM = {"jeden":1,"jedna":1,"jedno":1,"dwa":2,"dwie":2,"trzy":3,"cztery":4,"pięć":5,"sześć":6,"siedem":7,"osiem":8,"dziewięć":9,"dziesięć":10,"pół":0.5,"półtora":1.5};
+const SPEECH_UNITS = [["litr","l"],["mililitr","ml"],["kilogram","kg"],["kilo","kg"],["dekagram","dag"],["deko","dag"],["gram","g"],["sztuk","szt"],["opakowa","op"],["paczk","op"],["paczek","op"]];
+/* "dwa litry mleka i chleb potem masło" → "2 l mleka\nchleb\nmasło" */
+function speechToList(t){
+  let s = " " + String(t || "").toLowerCase().replace(/[.;!?]/g, ",") + " ";
+  s = s.replace(/\s(i|oraz|a także|potem|dalej|następnie|jeszcze|przecinek|kropka)(?=\s)/g, " ,");
+  s = s.replace(new RegExp("(^|[\\s,])(" + Object.keys(SPEECH_NUM).sort((a,b) => b.length - a.length).join("|") + ")(?=[\\s,])", "g"), (m, p, w) => p + SPEECH_NUM[w]);
+  for (const [w, u] of SPEECH_UNITS)
+    s = s.replace(new RegExp("(\\d+(?:[.,]\\d+)?)\\s*" + w + "[" + PL + "]*(?=[\\s,])", "g"), "$1 " + u);
+  return s.split(",").map(x => x.replace(/^\s*(kup(ić)?|potrzebuję|musz[ęe] kupić|lista( zakupów)?|zakupy)\s+/, "").trim())
+    .filter(x => new RegExp("[" + PL + "]{2,}").test(x)).join("\n");
 }
-function openScanSheet(){
-  openSheet(inner => {
-    inner.append(el("h3", {text:"Lista ze zdjęcia"}),
-      el("p", {class:"sub", text:"Zrób zdjęcie kartki z listą. Tekst rozpozna się w telefonie, bez internetu. Przed dodaniem możesz poprawić to, co aplikacja odczytała. Najlepiej działa z wyraźnym pismem i przy dobrym świetle."}),
-      el("div", {class:"actions"},
-        el("button", {class:"act primary", text:"Zrób zdjęcie", onclick(){ closeSheet(); Android.scanList("camera"); }}),
-        el("button", {class:"act", text:"Wybierz zdjęcie z galerii", onclick(){ closeSheet(); Android.scanList("gallery"); }})));
-  });
+let dictTarget = null;   /* pole w oknie "Podyktowana lista", do którego dopisujemy kolejne dyktowanie */
+function startDictation(target){
+  dictTarget = target || null;
+  if (window.Android && Android.dictate){ Android.dictate(); return; }
+  if (!SR){ toast("Dyktowanie nie jest dostępne w tej przeglądarce"); return; }
+  try{
+    const r = new SR(); r.lang = "pl-PL"; r.interimResults = false; r.maxAlternatives = 1;
+    r.onresult = e => window.pokoleiDictation(e.results[0][0].transcript, null);
+    r.onerror = e => window.pokoleiDictation(null, e.error === "not-allowed" ? "brak dostępu do mikrofonu" : e.error === "no-speech" ? "nic nie usłyszałem" : e.error);
+    r.start(); toast("Słucham… powiedz, co kupić");
+  }catch(e){ toast("Nie udało się włączyć mikrofonu"); }
 }
-window.pokoleiScanBusy = () => toast("Rozpoznaję tekst…");
-window.pokoleiScanResult = (text, err) => {
-  if (err){ toast("Nie udało się rozpoznać tekstu: " + err); return; }
-  const t = cleanOcr(text);
-  if (!t){ toast("Nie znalazłem tekstu na zdjęciu – spróbuj zrobić je bliżej i przy lepszym świetle"); return; }
-  openImportSheet(t, "Lista ze zdjęcia");
+window.pokoleiDictation = (text, err) => {
+  if (err){ toast("Dyktowanie: " + err); return; }
+  const t = speechToList(text);
+  if (!t){ toast("Nie rozpoznałem żadnego produktu – spróbuj jeszcze raz"); return; }
+  if (dictTarget && document.body.contains(dictTarget) && $("sheet").classList.contains("open")){
+    dictTarget.value = (dictTarget.value.trim() ? dictTarget.value.trim() + "\n" : "") + t;
+    dictTarget.dispatchEvent(new Event("input"));
+  } else openImportSheet(t, "Podyktowana lista");
+  dictTarget = null;
 };
-if (canScan){ $("camBtn").hidden = false; $("camBtn").addEventListener("click", openScanSheet); }
+if (canDictate){ $("micBtn").hidden = false; $("micBtn").addEventListener("click", () => startDictation()); }
 
 $("menuBtn").addEventListener("click", () => {
   const doneCount = state.items.filter(i => i.done).length;
